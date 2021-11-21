@@ -24,13 +24,12 @@ size_t RequestPacket::encode(byte* buf, size_t max_size) {
     for (byte ch : mode) {
         buf[i++] = ch;
     }
-    buf[i] = 0;
+    buf[i++] = 0;
     return i;
 }
 
-DataPacket::DataPacket(two_bytes _opcode, two_bytes _block, byte* _data,
-                       size_t _data_size)
-    : opcode(_opcode), block(_block), data_size(_data_size) {
+DataPacket::DataPacket(two_bytes _block, byte* _data, size_t _data_size)
+    : block(_block), data_size(_data_size) {
     for (size_t i = 0; i < _data_size; i++) {
         data[i] = _data[i];
     }
@@ -50,8 +49,7 @@ size_t DataPacket::encode(byte* buf, size_t max_size) {
     return 4 + data_size;
 }
 
-ACKPacket::ACKPacket(two_bytes _opcode, two_bytes _block)
-    : opcode(_opcode), block(_block) {}
+ACKPacket::ACKPacket(two_bytes _block) : block(_block) { opcode = Opcode::ACK; }
 
 size_t ACKPacket::encode(byte* buf, size_t max_size) {
     if (max_size < 4) {
@@ -64,9 +62,10 @@ size_t ACKPacket::encode(byte* buf, size_t max_size) {
     return 4;
 }
 
-ErrorPacket::ErrorPacket(two_bytes _opcode, two_bytes _err_code,
-                         std::string _err_string)
-    : opcode(_opcode), err_code(_err_code), err_string(_err_string) {}
+ErrorPacket::ErrorPacket(two_bytes _err_code, std::string _err_string)
+    : err_code(_err_code), err_string(_err_string) {
+    opcode = Opcode::ERR;
+}
 
 size_t ErrorPacket::encode(byte* buf, size_t max_size) {
     buf[0] = high_byte(opcode);

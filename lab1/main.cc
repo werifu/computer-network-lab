@@ -8,11 +8,14 @@
 #pragma comment(lib, "ws2_32.lib")
 
 int main() {
-    std::string filename = "test.txt";
-    UDP_INFO ips = {"192.168.99.128", 12450, "192.168.99.128", 69};
-    int payload_size = send_write_request(filename, ips);
-    u_short port = receive_ack(12450);
-    ips.dst_port = port;
-    send_file("client.cc", ips);
+    WSAData data;
+    WSAStartup(MAKEWORD(2, 2), &data);
+
+    std::string filename = "client.cc";
+    Client client = Client("192.168.99.128", 12450, "192.168.99.128");
+    // client.upload(filename);
+    // client.download("tftpd32.ini", "tftpd32.ini");
+    printf("finish!\n");
+
     return 0;
 }
