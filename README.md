@@ -5,7 +5,7 @@ labs of Computer Network Course in HUST
 - [x] basic download(well network)
 - [x] basic upload(well network)
 - [x] valid trans 
-- [ ] show speed
+- [x] show speed
 - [ ] log
 - [ ] cli
     - [ ] upload

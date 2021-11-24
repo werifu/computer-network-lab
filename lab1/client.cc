@@ -1,13 +1,20 @@
 #include "client.hh"
 
+#include <time.h>
 #include <windows.h>
+
+#include <algorithm>
+#include <cctype>
+#include <string>
 
 #include "packet.hh"
 using std::ifstream;
 using std::ofstream;
 
+// calculate speed per 10 packets
+#define CLOCK_UNIT_NUM 30
 Client::Client(std::string client_ip, u_short client_port,
-               std::string server_ip) {
+               std::string server_ip, std::string mode_) {
     client_addr.sin_family = AF_INET;
     client_addr.sin_addr.s_addr = inet_addr(client_ip.c_str());
     client_addr.sin_port = htons(client_port);
@@ -24,9 +31,36 @@ Client::Client(std::string client_ip, u_short client_port,
     l_buf[0] = static_cast<DWORD>(2000);
     int l_size = sizeof(DWORD);
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)l_buf, l_size);
+
+    // check mode
+    std::transform(mode_.begin(), mode_.end(), mode_.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (mode_.compare("octet") && mode_.compare("netascii")) {
+        printf("Mode %s is not supported. Only supports netascii && octet\n",
+               mode_.c_str());
+        exit(1);
+    }
+    mode = mode_;
 }
 
 Client::~Client() {}
+
+/**
+ * @brief print speed on terminal
+ *
+ * @param time_cost unit: milisecond
+ * @param packet_size unit: byte
+ */
+void Client::show_speed(double time_cost, int packet_size) {
+    double speed = (double)(packet_size) / (time_cost / CLOCKS_PER_SEC);
+    if (speed < 1024) {
+        printf("%.2lfb/s\r", speed);
+    } else if (speed < 1024 * 1024) {
+        printf("%.2lfKb/s\r", speed / 1024);
+    } else {
+        printf("%.2lfMb/s\r", speed / (1024 * 1024));
+    }
+}
 
 void Client::handle_recv_err(int err_code) {
     if (err_code == WSAETIMEDOUT) {
@@ -146,8 +180,8 @@ bool Client::send_valid_data_packet(DataPacket& packet, two_bytes cur_block) {
         // waiting for ack for this block
         byte ack_buf[MAX_PACKET_BUF];
         int addr_len = sizeof(this->server_addr_then);
-        printf("Send block %d to port: %u\n", cur_block,
-               htons(this->server_addr_then.sin_port));
+        // printf("Send block %d to port: %u\n", cur_block,
+        //        htons(this->server_addr_then.sin_port));
         int recv_size = recvfrom(this->sock, (char*)ack_buf, MAX_PACKET_BUF, 0,
                                  (sockaddr*)&this->server_addr_then, &addr_len);
         if (recv_size == SOCKET_ERROR) {
@@ -162,7 +196,12 @@ bool Client::send_valid_data_packet(DataPacket& packet, two_bytes cur_block) {
 }
 
 int Client::send_file(std::string filename) {
-    ifstream fin(filename);
+    ifstream fin;
+    if (this->mode == "octet") {
+        fin.open(filename, std::ios::binary);
+    } else {
+        fin.open(filename);
+    }
     if (!fin) {
         printf("Cannot open file %s", filename.c_str());
         return false;
@@ -170,6 +209,7 @@ int Client::send_file(std::string filename) {
     byte data_buf[MAX_DATA_LEN];
     two_bytes cur_block = 1;
 
+    clock_t start, end;
     while (!fin.eof()) {
         memset(data_buf, 0, MAX_DATA_LEN);
         fin.read((char*)data_buf, MAX_DATA_LEN);
@@ -182,6 +222,11 @@ int Client::send_file(std::string filename) {
         } else {
             data_size = MAX_DATA_LEN;
         }
+
+        if (cur_block % CLOCK_UNIT_NUM == 0) {
+            start = clock();
+        }
+
         DataPacket packet = DataPacket(cur_block, data_buf, data_size);
         int succ = this->send_valid_data_packet(packet, cur_block);
         if (!succ) {
@@ -189,16 +234,34 @@ int Client::send_file(std::string filename) {
             return false;
         }
         cur_block++;
+
+        // there is cur_block++ above
+        if (cur_block % CLOCK_UNIT_NUM == 0) {
+            end = clock();
+            this->show_speed(double(end - start), MAX_DATA_LEN* CLOCK_UNIT_NUM);
+        }
     }
     return true;
 }
 
 bool Client::upload(std::string filename) {
+    // test file's existence
+    ifstream fin(filename);
+    if (fin.fail()) {
+        printf("Cannot open file %s\n", filename.c_str());
+        return false;
+    } else {
+        fin.close();
+    }
     try {
+        clock_t start = clock();
         int wrq_succ = this->send_valid_write_request(filename);
         if (!wrq_succ) {
             throw "Cannot build a connection to the server";
         }
+        clock_t end = clock();
+        this->show_speed(double(end - start), 4);
+
         this->send_file(filename);
     } catch (const char* str) {
         printf("Upload error: %s\n", str);
@@ -299,13 +362,25 @@ int Client::send_ack(two_bytes block) {
 bool Client::receive_file(std::string remote_path, ofstream& fout) {
     int ack_block = 1;
     int state = true;
+    clock_t start, end;
     // state == true means ok but not finish
     while (state) {
-        printf("ack block%d\n", ack_block);
+        // printf("ack block%d\n", ack_block);
+
+        if (ack_block % CLOCK_UNIT_NUM == 0) {
+            start = clock();
+        }
+
         int ret = this->receive_valid_data_packet(ack_block, fout);
         if (ret == FINISH) return true;
         if (ret == false) return false;
         ack_block++;
+
+        // there is cur_block++ above
+        if (ack_block % CLOCK_UNIT_NUM == 0) {
+            end = clock();
+            this->show_speed(double(end - start), MAX_DATA_LEN* CLOCK_UNIT_NUM);
+        }
     }
     return true;
 }
@@ -347,7 +422,8 @@ bool Client::is_expected_data(byte* packet_buf, int recv_size,
  * @returns false:fail; true:success and more than one data packet; FINISH:
  * success and only one data packet
  */
-int Client::send_valid_read_request(std::string filename, ofstream& fout) {
+int Client::send_valid_read_request(std::string filename,
+                                    std::string output_path, ofstream& fout) {
     int state = false;
     int try_times = 0;
     while (!state && try_times < MAX_TRY_TIMES) {
@@ -372,6 +448,15 @@ int Client::send_valid_read_request(std::string filename, ofstream& fout) {
         } else {
             if (this->is_expected_data(packet_buf, r_size, 1)) {
                 int data_size = r_size - 4;
+
+                // create file after receive one data packet,
+                // to avoid create file but remote file not exists.
+                if (this->mode == "octet") {
+                    fout.open(output_path, std::ios::binary | std::ios::out);
+                } else {
+                    fout.open(output_path, std::ios::out);
+                }
+
                 fout.write((const char*)(packet_buf + 4), data_size);
                 if (data_size == MAX_DATA_LEN) {
                     state = true;
@@ -385,9 +470,10 @@ int Client::send_valid_read_request(std::string filename, ofstream& fout) {
 }
 
 bool Client::download(std::string remote_path, std::string output_path) {
+    // test file's existence
     try {
-        ofstream fout(output_path);
-        int ret = this->send_valid_read_request(remote_path, fout);
+        ofstream fout;
+        int ret = this->send_valid_read_request(remote_path, output_path, fout);
         if (ret == FINISH) {
             return true;
         }

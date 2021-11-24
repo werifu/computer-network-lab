@@ -13,9 +13,11 @@ class Client {
     sockaddr_in client_addr;
     sockaddr_in server_addr_begin;
     sockaddr_in server_addr_then;
+    std::string mode;
 
    public:
-    Client(std::string client_ip, u_short client_port, std::string server_ip);
+    Client(std::string client_ip, u_short client_port, std::string server_ip,
+           std::string mode_ = "octet");
     ~Client();
     bool upload(std::string filename);
     bool download(std::string remote_path, std::string output_path);
@@ -33,10 +35,13 @@ class Client {
     // download
     bool is_expected_data(byte* pakcet_buf, int recv_size,
                           two_bytes expected_block);
-    int send_valid_read_request(std::string filename, std::ofstream& fout);
+    int send_valid_read_request(std::string filename, std::string output_path,
+                                std::ofstream& fout);
     bool receive_file(std::string filename, std::ofstream& fout);
     int receive_data_packet(byte* data_buf);
     int receive_valid_data_packet(two_bytes ack_block, std::ofstream& fout);
     int send_ack(two_bytes block);
-    // lose connection
+
+    // progress
+    void show_speed(double time_cost, int packet_size);
 };
