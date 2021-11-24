@@ -13,9 +13,11 @@ int main() {
 
     std::string filename = "client.cc";
     Client client = Client("192.168.99.128", 12450, "192.168.99.128");
-    // client.upload(filename);
-    // client.download("tftpd32.ini", "tftpd32.ini");
-    printf("finish!\n");
-
+    // if (client.upload(filename)) {
+    //     printf("OK!\n");
+    // }
+    if (client.download("test.txt", "test.txt")) {
+        printf("DOWNLOAD OK\n");
+    }
     return 0;
 }
