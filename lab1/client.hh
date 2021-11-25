@@ -18,8 +18,9 @@ class Client {
    public:
     Client(std::string client_ip, u_short client_port, std::string server_ip,
            std::string mode_ = "octet");
+    Client();
     ~Client();
-    bool upload(std::string filename);
+    bool upload(std::string filename, std::string to_server_path);
     bool download(std::string remote_path, std::string output_path);
 
    private:

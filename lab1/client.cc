@@ -13,6 +13,7 @@ using std::ofstream;
 
 // calculate speed per 10 packets
 #define CLOCK_UNIT_NUM 30
+Client::Client() {}
 Client::Client(std::string client_ip, u_short client_port,
                std::string server_ip, std::string mode_) {
     client_addr.sin_family = AF_INET;
@@ -100,7 +101,7 @@ bool Client::is_expected_ack(byte* ack_buf, int recv_size,
 // send Write Request Packet or Read Request Packet
 // return the size of the packet sent or SOCK_ERROR
 int Client::send_request(Opcode opcode, std::string filename) {
-    auto packet = RequestPacket(opcode, filename, "netascii");
+    auto packet = RequestPacket(opcode, filename, this->mode);
     byte pkt[MAX_PACKET_BUF];
     size_t pkt_length = packet.encode(pkt, MAX_PACKET_BUF);
     // send the pkt
@@ -244,7 +245,7 @@ int Client::send_file(std::string filename) {
     return true;
 }
 
-bool Client::upload(std::string filename) {
+bool Client::upload(std::string filename, std::string to_server_path) {
     // test file's existence
     ifstream fin(filename);
     if (fin.fail()) {
@@ -255,7 +256,7 @@ bool Client::upload(std::string filename) {
     }
     try {
         clock_t start = clock();
-        int wrq_succ = this->send_valid_write_request(filename);
+        int wrq_succ = this->send_valid_write_request(to_server_path);
         if (!wrq_succ) {
             throw "Cannot build a connection to the server";
         }
