@@ -10,7 +10,7 @@
 #include "packet.hh"
 using std::ifstream;
 using std::ofstream;
-
+using std::to_string;
 // calculate speed per 10 packets
 #define CLOCK_UNIT_NUM 30
 Client::Client() {}
@@ -55,19 +55,20 @@ Client::~Client() {}
 void Client::show_speed(double time_cost, int packet_size) {
     double speed = (double)(packet_size) / (time_cost / CLOCKS_PER_SEC);
     if (speed < 1024) {
-        printf("%.2lfb/s\r", speed);
+        // use many tabs to clear the line
+        printf("%.2lfb/s            \r", speed);
     } else if (speed < 1024 * 1024) {
-        printf("%.2lfKb/s\r", speed / 1024);
+        printf("%.2lfKb/s           \r", speed / 1024);
     } else {
-        printf("%.2lfMb/s\r", speed / (1024 * 1024));
+        printf("%.2lfMb/s           \r", speed / (1024 * 1024));
     }
 }
 
 void Client::handle_recv_err(int err_code) {
     if (err_code == WSAETIMEDOUT) {
-        printf("Recv timeout\n");
+        this->logger.error("Recv timeout");
     } else {
-        printf("Last recv error: %d\n", WSAGetLastError());
+        this->logger.error("Last recv error: " + to_string(WSAGetLastError()));
     }
 }
 
@@ -75,23 +76,26 @@ bool Client::is_expected_ack(byte* ack_buf, int recv_size,
                              two_bytes expected_block) {
     two_bytes packet_type = htons(*(two_bytes*)ack_buf);
     if (packet_type == Opcode::ERR) {
-        printf("Receive error packet from server, ");
+        this->logger.error("Receive error packet from server, ");
         // keep memory save
         if (recv_size < 4) return false;
         two_bytes err_code = htons(*(two_bytes*)(ack_buf + 2));
-        printf("error code: %u, ", err_code);
-        printf("error message: %s\n", ack_buf + 4);
+        std::string str((char*)(ack_buf + 4));
+        this->logger.error("error code: " + to_string((two_bytes)err_code) +
+                           "\nerror message: " + str);
         return false;
     } else if (packet_type != Opcode::ACK || recv_size < 4) {
-        printf("Receive invalid packet, opcode: %d\n", packet_type);
+        this->logger.error("Receive invalid packet, opcode: " +
+                           to_string((two_bytes)packet_type));
         return false;
     }
 
     // check the block num
     two_bytes recv_block = htons(*(two_bytes*)(ack_buf + 2));
     if (recv_block != expected_block) {
-        printf("Receive unexpected block, expect %u but received %u\n",
-               expected_block, recv_block);
+        this->logger.error("Receive unexpected block, expect " +
+                           to_string((two_bytes)expected_block) +
+                           " but received " + to_string((two_bytes)recv_block));
         return false;
     }
     return true;
@@ -127,8 +131,8 @@ bool Client::send_valid_write_request(std::string filename) {
         int send_size = this->send_request(Opcode::WRITE, filename);
         try_times++;
         if (send_size == SOCKET_ERROR) {
-            printf("Fail to send write request, error_code: %d\n",
-                   WSAGetLastError());
+            this->logger.error("Fail to send write request, error_code: " +
+                               to_string(WSAGetLastError()));
             Sleep(100);
             continue;
         }
@@ -173,7 +177,8 @@ bool Client::send_valid_data_packet(DataPacket& packet, two_bytes cur_block) {
         try_times++;
         if (send_size == SOCKET_ERROR) {
             // send fail
-            printf("Last send error: %d\n", WSAGetLastError());
+            this->logger.error("Last send error: " +
+                               to_string(WSAGetLastError()));
             Sleep(100);
             continue;
         }
@@ -204,7 +209,8 @@ int Client::send_file(std::string filename) {
         fin.open(filename);
     }
     if (!fin) {
-        printf("Cannot open file %s", filename.c_str());
+        this->logger.panic("Cannot open file " + filename);
+        printf("Cannot open file %s\n", filename.c_str());
         return false;
     }
     byte data_buf[MAX_DATA_LEN];
@@ -231,7 +237,7 @@ int Client::send_file(std::string filename) {
         DataPacket packet = DataPacket(cur_block, data_buf, data_size);
         int succ = this->send_valid_data_packet(packet, cur_block);
         if (!succ) {
-            printf("lose connection, will exit..\n");
+            printf("Lose connection, will exit..");
             return false;
         }
         cur_block++;
@@ -249,6 +255,7 @@ bool Client::upload(std::string filename, std::string to_server_path) {
     // test file's existence
     ifstream fin(filename);
     if (fin.fail()) {
+        this->logger.panic("Cannot open file " + filename);
         printf("Cannot open file %s\n", filename.c_str());
         return false;
     } else {
@@ -266,6 +273,8 @@ bool Client::upload(std::string filename, std::string to_server_path) {
         this->send_file(filename);
     } catch (const char* str) {
         printf("Upload error: %s\n", str);
+        std::string s(str);
+        this->logger.error("Upload error: " + s);
         return false;
     }
     return true;
@@ -282,7 +291,7 @@ int Client::receive_data_packet(byte* data_buf) {
     int r_size = recvfrom(this->sock, (char*)packet_buf, MAX_PACKET_BUF, 0,
                           (sockaddr*)&this->server_addr_then, &packet_len);
     if (r_size == SOCKET_ERROR) {
-        printf("recvfrom error: %d", WSAGetLastError());
+        this->logger.error("recvfrom error: " + to_string(WSAGetLastError()));
         return SOCKET_ERROR;
     }
     int data_size = r_size - 4;
@@ -310,8 +319,9 @@ int Client::receive_valid_data_packet(two_bytes ack_block, ofstream& fout) {
         int send_size = this->send_ack(ack_block);
         try_times++;
         if (send_size == SOCKET_ERROR) {
-            printf("Fail to send ack for block%u, error_code: %d\n", ack_block,
-                   WSAGetLastError());
+            this->logger.error("Fail to send ack for block" +
+                               to_string(ack_block) +
+                               to_string(WSAGetLastError()));
             Sleep(100);
             continue;
         }
@@ -389,26 +399,29 @@ bool Client::receive_file(std::string remote_path, ofstream& fout) {
 bool Client::is_expected_data(byte* packet_buf, int recv_size,
                               two_bytes expected_block) {
     if (recv_size < 4) {
-        printf("Receive a packet less than 4 bytes\n");
+        this->logger.error("Receive a packet less than 4 bytes");
         return false;
     }
     two_bytes packet_type = htons(*(two_bytes*)packet_buf);
     if (packet_type == Opcode::ERR) {
-        printf("Receive error packet from server, ");
+        this->logger.error("Receive error packet from server, ");
         two_bytes err_code = htons(*(two_bytes*)(packet_buf + 2));
-        printf("error code: %u, ", err_code);
-        printf("error message: %.512s\n", (char*)(packet_buf + 4));
+        std::string str((char*)packet_buf + 4);
+        this->logger.error("error code: " + to_string(err_code) +
+                           "error message: " + str);
         return false;
     } else if (packet_type != Opcode::DATA) {
-        printf("Receive invalid packet, opcode: %d\n", packet_type);
+        this->logger.error("Receive invalid packet, opcode: " +
+                           to_string(packet_type));
         return false;
     }
 
     // check the block num
     two_bytes recv_block = htons(*(two_bytes*)(packet_buf + 2));
     if (recv_block != expected_block) {
-        printf("Received unexpected block, expect %u but received %u\n",
-               expected_block, recv_block);
+        this->logger.error("Received unexpected block, expect " +
+                           to_string(expected_block) + " but received " +
+                           to_string(recv_block));
         return false;
     }
     return true;
@@ -432,8 +445,8 @@ int Client::send_valid_read_request(std::string filename,
         int send_size = this->send_request(Opcode::READ, filename);
         try_times++;
         if (send_size == SOCKET_ERROR) {
-            printf("Fail to send read request, error_code: %d\n",
-                   WSAGetLastError());
+            this->logger.error("Fail to send read request, error_code: " +
+                               to_string(WSAGetLastError()));
             Sleep(100);
             continue;
         }
@@ -490,7 +503,8 @@ bool Client::download(std::string remote_path, std::string output_path) {
             throw "Lose connection to server";
         }
     } catch (const char* str) {
-        printf("Download error: %s\n", str);
+        std::string s(str);
+        this->logger.error("Download error: " + s);
         return false;
     }
 }

@@ -5,8 +5,10 @@
 #include <string>
 
 #include "packet.hh"
+#include "logger.hh"
 #define MAX_TRY_TIMES 5
 #define FINISH 2
+
 class Client {
    private:
     SOCKET sock;
@@ -14,6 +16,7 @@ class Client {
     sockaddr_in server_addr_begin;
     sockaddr_in server_addr_then;
     std::string mode;
+    Logger logger;
 
    public:
     Client(std::string client_ip, u_short client_port, std::string server_ip,

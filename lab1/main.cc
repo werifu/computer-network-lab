@@ -100,6 +100,7 @@ bool check_param(string from, string to, string port, string ip, string &mode) {
 }
 
 int main(int argc, char *argv[]) {
+    printf("\n");
     WSAData data;
     WSAStartup(MAKEWORD(2, 2), &data);
     const char *opt = "i:f:t:p:m:";

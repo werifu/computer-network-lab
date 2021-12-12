@@ -1,3 +1,5 @@
 **/debug
 **/tftpd32.ini
 **/test.txt
+**/*.exe
+**/.log
